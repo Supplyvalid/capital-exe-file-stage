@@ -5,62 +5,39 @@ on:
     types:
       - published
 
-  workflow_dispatch:
-
 permissions:
   contents: read
 
 jobs:
   upload-release:
-    name: Upload Release EXE to S3 Stage
     runs-on: ubuntu-latest
 
     steps:
-
-      # --------------------------------------------------
-      # 1. Download EXE from GitHub Release
-      # --------------------------------------------------
-      - name: Download release EXE
+      - name: Download Shelivo EXE from Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           mkdir -p release
 
-          gh release download "$RELEASE_TAG" \
-            --pattern "*.exe" \
+          gh release download "$TAG_NAME" \
+            --pattern "Shelivo-Setup.exe" \
             --dir release \
             --repo "${{ github.repository }}"
 
-          echo "Downloaded release files:"
-          ls -lah release
+          echo "Downloaded files:"
+          ls -lh release/
 
-      # --------------------------------------------------
-      # 2. Check EXE exists
-      # --------------------------------------------------
       - name: Verify EXE
         run: |
-          EXE_COUNT=$(find release -maxdepth 1 -type f -name "*.exe" | wc -l)
-
-          if [ "$EXE_COUNT" -eq 0 ]; then
-            echo "ERROR: No EXE found in GitHub Release."
+          if [ ! -f "release/Shelivo-Setup.exe" ]; then
+            echo "ERROR: Shelivo-Setup.exe not found!"
             exit 1
           fi
 
-          if [ "$EXE_COUNT" -gt 1 ]; then
-            echo "ERROR: More than one EXE found in GitHub Release."
-            find release -maxdepth 1 -type f -name "*.exe"
-            exit 1
-          fi
+          echo "EXE found successfully."
+          ls -lh release/Shelivo-Setup.exe
 
-          EXE=$(find release -maxdepth 1 -type f -name "*.exe")
-
-          echo "Release EXE:"
-          echo "$EXE"
-
-      # --------------------------------------------------
-      # 3. Configure AWS
-      # --------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -68,52 +45,37 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      # --------------------------------------------------
-      # 4. Upload EXE to S3 Stage
-      # --------------------------------------------------
-      - name: Upload EXE to S3
-        shell: bash
+      - name: Upload EXE to S3 Stage
         run: |
-          EXE=$(find release -maxdepth 1 -type f -name "*.exe")
-
-          aws s3 cp "$EXE" \
-            s3://shelivo/stage/ShelivoPrintAgentSetup.exe \
+          aws s3 cp \
+            release/Shelivo-Setup.exe \
+            s3://shelivo/stage/Shelivo-Setup.exe \
             --cache-control "no-cache, no-store, must-revalidate" \
             --content-type "application/octet-stream"
 
-      # --------------------------------------------------
-      # 5. Upload release information
-      # --------------------------------------------------
-      - name: Create release information
-        shell: bash
+      - name: Upload latest.yml to S3 Stage
         run: |
-          cat > release-info.txt <<EOF
-          Product: Shelivo Print Agent
-          Environment: Stage
-          Repository: ${{ github.repository }}
-          Release: ${{ github.event.release.tag_name }}
-          Release Name: ${{ github.event.release.name }}
-          Commit: ${{ github.event.release.target_commitish }}
-          GitHub Run: ${{ github.run_number }}
-          EOF
+          gh release download "${{ github.event.release.tag_name }}" \
+            --pattern "latest.yml" \
+            --dir release \
+            --repo "${{ github.repository }}"
 
-      - name: Upload release information
-        run: |
-          aws s3 cp release-info.txt \
-            s3://shelivo/stage/release-info.txt \
+          aws s3 cp \
+            release/latest.yml \
+            s3://shelivo/stage/latest.yml \
             --cache-control "no-cache, no-store, must-revalidate" \
-            --content-type "text/plain"
+            --content-type "text/yaml"
 
-      # --------------------------------------------------
-      # 6. Deployment complete
-      # --------------------------------------------------
-      - name: Deployment completed
+      - name: Deployment successful
         run: |
-          echo "=============================================="
-          echo "Shelivo Stage Deployment Successful"
-          echo "=============================================="
+          echo "======================================"
+          echo "Stage Deployment Successful"
+          echo "======================================"
           echo ""
           echo "Release: ${{ github.event.release.tag_name }}"
           echo ""
-          echo "S3:"
-          echo "s3://shelivo/stage/ShelivoPrintAgentSetup.exe"
+          echo "S3 EXE:"
+          echo "s3://shelivo/stage/Shelivo-Setup.exe"
+          echo ""
+          echo "S3 latest.yml:"
+          echo "s3://shelivo/stage/latest.yml"
